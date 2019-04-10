@@ -1,0 +1,30 @@
+{
+  "__default__": {
+    "cpu": "1",
+    "mem": "1G",
+    "rt": "00:30:00",
+    "params": ""
+  },
+  "sniffles_call": {
+    "cpu": "12",
+    "mem": "2G",
+    "rt": "48:00:00"
+  },
+  "sniffles_merge_bam": {
+    "rt": "18:00:00",
+    "mem": "16G"
+  },
+  "sniffles_map_sort": {
+    "cpu": "{params.threads}",
+    "mem": "{params.mem}",
+    "rt": "18:00:00"
+  },
+  "sniffles_map": {
+    "cpu": "{params.threads}",
+    "mem": "{params.mem}",
+    "rt": "5:00:00:00"
+  },
+  "sniffles_bam_to_fq": {
+    "rt": "2:00:00"
+  }
+}
