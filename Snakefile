@@ -96,8 +96,10 @@ rule sniffles_call:
         bam='mapped_reads.bam'
     output:
         vcf=temp('temp/variants.vcf')
+    params:
+        min_svlen=config.get('min_svlen', '30')
     shell:
-        """sniffles -t 12 -m {input.bam} -v {output.vcf} --genotype --cluster"""
+        """sniffles -t 12 -m {input.bam} -l {params.min_svlen} -v {output.vcf} --genotype --cluster"""
 
 
 #
@@ -132,7 +134,7 @@ rule sniffles_map_sort:
         bam='temp/align/bam/sorted/{cell}.bam'
     params:
         threads='4',
-        mem='1G',
+        mem='1.5G',
         temp_dir=lambda wildcards: os.path.join(temp_dir, 'sniffles_map_sort_{}'.format(wildcards.cell))
     shell:
         """echo "Hostname: $(hostname)"; """
