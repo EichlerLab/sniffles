@@ -13,6 +13,7 @@ Run ngmlr and sniffles.
 import os
 import numpy as np
 import pandas as pd
+import re
 
 
 #
@@ -24,25 +25,19 @@ configfile: 'config.json'
 
 
 # Read cell table
-def get_cell_table(sample=None):
+def get_cell_table():
     """
-    Get a Pandas Series of subread BAMs. If `sample` is `None`, one record for each cell from all samples is returned
-    with key (sample, cell). If `sample` is not `None`, records for that sample are returned keyed only by the cell.
+    Get a DataFrame of input data with (sample, cell) index.
 
-    :param sample: Subset to this sample if not `None`.
-
-    :return: Pandas series of subread BAMs.
+    :return: Pandas DataFrame of input data.
     """
 
     # Read FOFN table
     df_fofn = pd.read_csv('samples.tsv', sep='\t', index_col=['SAMPLE'], usecols=('SAMPLE', 'FOFN'), squeeze=True)
 
-    if sample is None:
-        sample_list = list(df_fofn.keys())
-    else:
-        sample_list = [sample]
+    sample_list = list(df_fofn.keys())
 
-    # Bulid cell table
+    # Build cell table
     cell_table_list = list()
 
     for sample_name in sample_list:
@@ -55,9 +50,15 @@ def get_cell_table(sample=None):
                 if not line or line.startswith('#'):
                     continue
 
-                if not line.endswith('.subreads.bam'):
+                if line.endswith('.bam'):
+                    file_format = 'BAM'
+
+                elif line.endswith('.fastq') or line.endswith('.fastq.gz'):
+                    file_format = 'FASTQ'
+
+                else:
                     raise RuntimeError(
-                        'Expected subreads BAM in input FOFN (see config): Found: "{}": {}'.format(
+                        'Expected BAM or FASTQ in input FOFN (see config): Found: "{}": {}'.format(
                             line, df_fofn[sample_name]
                         )
                     )
@@ -66,21 +67,32 @@ def get_cell_table(sample=None):
                 cell_table_list.append(pd.Series(
                     [
                         sample_name,
-                        os.path.basename(line).rstrip('.subreads.bam'),
+                        re.sub(r'\.(bam|fastq(\.gz)?)$', '', os.path.basename(line), flags=re.IGNORECASE),
+                        file_format,
                         line
                     ],
-                    index=['SAMPLE', 'CELL', 'FILE']
+                    index=['SAMPLE', 'CELL', 'FORMAT', 'FILE']
                 ))
 
-    df_cell = pd.concat(cell_table_list, 1).T
-
-    if sample is not None:
-        del(df_cell['SAMPLE'])
-        df_cell = df_cell.set_index('CELL').squeeze()
-    else:
-        df_cell = df_cell.set_index(['SAMPLE', 'CELL']).squeeze()
+    df_cell = pd.concat(
+        cell_table_list, axis=1
+    ).T.set_index(
+        ['SAMPLE', 'CELL']
+    )
 
     return df_cell
+
+def list_cells(sample):
+    """
+    Get a list of cells for a sample. Used by expand rules to find all input for one sample.
+
+    :param sample: sample.
+
+    :return: List of cells.
+    """
+    df_cell = get_cell_table().reset_index()
+
+    return list(df_cell.loc[df_cell['SAMPLE'] == sample, 'CELL'])
 
 
 # Temp directory
@@ -157,7 +169,7 @@ rule sniffles_merge_bam:
         bam=lambda wildcards: [
             'temp/{sample}/align/bam/sorted/{cell}.bam'.format(
                 sample=wildcards.sample, cell=cell
-            ) for cell in list(get_cell_table(wildcards.sample).keys())
+            ) for cell in list_cells(wildcards.sample)
          ]
     output:
         bam='align/{sample}/mapped_reads.bam',
@@ -202,16 +214,59 @@ rule sniffles_map:
         threads=config.get('map_cores', '18'),
         mem=config.get('map_mem', '2G'),
         preset=config.get('map_preset', 'pacbio')
-    shell:
-        """ngmlr --bam-fix -x {params.preset} -t {params.threads} -r {params.ref} -q {input.fastq} -o {output.bam}"""
+    run:
+
+        cell_record = get_cell_table().loc[(wildcards.sample, wildcards.cell)]
+
+        if cell_record['FORMAT'] == 'BAM':
+            # Get converted FASTQ
+            input_fastq = f'temp/{wildcards.sample}/align/fastq/{wildcards.cell}.fastq.gz'
+
+        elif cell_record['FORMAT'] == 'FASTQ':
+            # Get original FASTQ (no BAM > FASTQ conversion was needed)
+            input_fastq = cell_record['FILE']
+
+        else:
+            # Unknown format. FORMAT field is out of sync with get_cell_table()
+            raise RuntimeError(
+                'Unknown file format: {} (Program bug: should have been caught by get_cell_table())'.format(
+                    cell_record['FORMAT']
+                )
+            )
+
+        # Run alignment
+        shell(
+            """ngmlr --bam-fix -x {params.preset} -t {params.threads} -r {params.ref} -q {input_fastq} -o {output.bam}"""
+        )
 
 # sniffles_bam_to_fq
 #
 # Convert a PacBio cell BAM to a FASTQ.
 rule sniffles_bam_to_fq:
     input:
-        bam=lambda wildcards: get_cell_table(wildcards.sample)[wildcards.cell]
+        bam=lambda wildcards: get_cell_table().loc[(wildcards.sample, wildcards.cell), 'FILE']
     output:
         fastq=temp('temp/{sample}/align/fastq/{cell}.fastq.gz')
-    shell:
-        """bam2fastq -o temp/{wildcards.sample}/align/fastq/{wildcards.cell} {input.bam}"""
+    run:
+
+        cell_record = get_cell_table().loc[(wildcards.sample, wildcards.cell)]
+
+        if cell_record['FORMAT'] == 'BAM':
+            # Generate FASTQ for ngmlr
+            shell(
+                """bam2fastq -o temp/{wildcards.sample}/align/fastq/{wildcards.cell} {input.bam}"""
+            )
+
+        elif cell_record['FORMAT'] == 'FASTQ':
+            # Write an empty file: File is a flag when data is already FASTQ from the source
+            with open(output.fastq, 'w') as out_file:
+                pass
+
+        else:
+            # Unknown format. FORMAT field is out of sync with get_cell_table()
+            raise RuntimeError(
+                'Unknown file format: {} (Program bug: should have been caught by get_cell_table())'.format(
+                    cell_record['FORMAT']
+                )
+            )
+
