@@ -16,7 +16,6 @@ Example:
 ```
 {
   "reference": "/net/eichler/vol27/projects/autism_genome_assembly/nobackups/sv/reference/hg38.no_alt.fa",
-  "fofn": "/net/eichler/vol27/projects/autism_genome_assembly/nobackups/data/PacBio/WGS/14455.p1.fofn"
 }
 ```
 
@@ -26,18 +25,25 @@ Define a variable that gives the full path to the pbsv pipeline code, which is t
 and this `README.md` file. The pipeline itself does not use the variable, but commands in this README will.
 
 Example:
-`PIPELINE_DIR=/net/eichler/vol27/projects/structural_variation/nobackups/pipelines/sniffles/201901`
+`PIPELINE_DIR=/net/eichler/vol27/projects/structural_variation/nobackups/pipelines/sniffles/202006`
 
 Load required modules (may work with later versions of these modules):
 ```
 module load ngmlr/0.2.7
-module load sniffles/1.0.10
-module load pbconda/201812
-module load miniconda/4.5.11
-module load samtools/1.9
-module load tabix/0.2.6
-module load htslib/1.9 bcftools/1.9
+module load sniffles/202006
+module load pbconda/202004
+module load samtools/1.10
+module load htslib/1.9
+module load bcftools/1.9
+module load miniconda/4.5.12
 ```
 
 Run distributed:
-`mkdir -p log; snakemake -s ${PIPELINE_DIR}/Snakefile --ri -j 30 -k --jobname "{rulename}.{jobid}" --drmaa " -V -cwd -e ./log -o ./log -pe serial {cluster.cpu} -l mfree={cluster.mem} -l h_rt={cluster.rt} -l gpfsstate=0 -j y -w n -S /bin/bash" -w 60 -u ${PIPELINE_DIR}/config/cluster.json --config ldpath=$LD_LIBRARY_PATH`
+`mkdir -p log; snakemake -s ${PIPELINE_DIR}/Snakefile --ri -j 30 -k --jobname "{rulename}.{jobid}" --drmaa " -V -cwd -e ./log -o ./log -pe serial {cluster.cpu} -l mfree={cluster.mem} -l h_rt={cluster.rt} -j y -w n -S /bin/bash" -w 60 -u ${PIPELINE_DIR}/config/cluster.json --config ldpath=$LD_LIBRARY_PATH`
+
+
+### Notes ###
+
+Samtools 1.10 does not to work with ngmlr alignments, which is probably due to trimming alignments down to only soft-
+clipped bases (See https://github.com/philres/ngmlr/issues/51). Seems to work with Samtools 1.9, and pipeline would need
+to be modified to remove these alignment records before moving to 1.10.

@@ -22,7 +22,7 @@
   "sniffles_map": {
     "cpu": "{params.threads}",
     "mem": "{params.mem}",
-    "rt": "5:00:00:00"
+    "rt": "18:00:00:00"
   },
   "sniffles_bam_to_fq": {
     "rt": "2:00:00"
